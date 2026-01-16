@@ -4,10 +4,8 @@ import { ItemType, BinderItem } from '../types';
 import { 
     StickyNote, 
     Move, 
-    Maximize, 
     ZoomIn, 
     ZoomOut, 
-    Save,
     Bold,
     Italic,
     Underline,
@@ -20,65 +18,134 @@ import {
     Heading2,
     Quote,
     GripVertical,
-    Grip
+    Grip,
+    Link as LinkIcon,
+    Scissors
 } from 'lucide-react';
 
-/* --- EDITOR VIEW --- */
-export const EditorView = () => {
-  const { selectedItemId, items, updateItem } = useAppStore();
-  const item = selectedItemId ? items[selectedItemId] : null;
-  const editorRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isLocalUpdate = useRef(false);
+/* --- EDITOR COMPONENT (Single Instance) --- */
+const SingleEditor = ({ item, isScrivenings = false }: { item: BinderItem, isScrivenings?: boolean }) => {
+    const { updateItem } = useAppStore();
+    const editorRef = useRef<HTMLDivElement>(null);
+    const isLocalUpdate = useRef(false);
 
-  useEffect(() => {
-    if (editorRef.current && item) {
-        if (editorRef.current.innerHTML !== item.content) {
-             if (!isLocalUpdate.current) {
-                editorRef.current.innerHTML = item.content || '';
-             }
+    useEffect(() => {
+        if (editorRef.current) {
+            if (editorRef.current.innerHTML !== item.content) {
+                if (!isLocalUpdate.current) {
+                    editorRef.current.innerHTML = item.content || '';
+                }
+            }
+            isLocalUpdate.current = false;
         }
-        isLocalUpdate.current = false;
-    }
-  }, [item?.content, item?.id]);
+    }, [item.content, item.id]);
 
-  const handleInput = () => {
-      if (editorRef.current) {
-          isLocalUpdate.current = true;
-          updateItem(item!.id, { content: editorRef.current.innerHTML });
-          centerCaret();
-      }
-  };
+    const handleInput = () => {
+        if (editorRef.current) {
+            isLocalUpdate.current = true;
+            updateItem(item.id, { content: editorRef.current.innerHTML });
+        }
+    };
 
-  const centerCaret = () => {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0 && containerRef.current) {
-          const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          const containerRect = containerRef.current.getBoundingClientRect();
-          
-          const offsetTop = rect.top - containerRect.top;
-          const targetY = containerRect.height / 2;
-          
-          if (Math.abs(offsetTop - targetY) > 20) {
-             const scrollAmount = rect.top - (containerRect.top + containerRect.height / 2);
-             containerRef.current.scrollBy({ top: scrollAmount, behavior: 'smooth' });
-          }
-      }
-  };
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (data.id) {
+                // Insert a link at the current caret position or drop position
+                const title = data.title || "Linked Item";
+                const linkHTML = `&nbsp;<a href="#${data.id}" contenteditable="false" class="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer">[${title}]</a>&nbsp;`;
+                
+                // If drop target is the editor, try to insert at drop point
+                if (document.caretRangeFromPoint) {
+                    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                    if (range) {
+                        const sel = window.getSelection();
+                        sel?.removeAllRanges();
+                        sel?.addRange(range);
+                        document.execCommand('insertHTML', false, linkHTML);
+                    }
+                } else {
+                     document.execCommand('insertHTML', false, linkHTML);
+                }
+                
+                handleInput();
+            }
+        } catch (err) {}
+    };
 
-  if (!item) return <div className="p-10 text-center text-gray-400">No selection</div>;
+    return (
+        <div className={`max-w-4xl mx-auto px-8 ${isScrivenings ? 'py-4' : 'py-8 min-h-full pb-[50vh]'}`}>
+            {!isScrivenings && (
+                <input 
+                    type="text" 
+                    value={item.title} 
+                    onChange={(e) => updateItem(item.id, { title: e.target.value })}
+                    className="text-3xl font-bold w-full outline-none bg-transparent dark:text-gray-100 placeholder-gray-300 mb-6"
+                    placeholder="Title"
+                />
+            )}
+            <div
+                id={`editor-${item.id}`} // Helper ID for split logic
+                ref={editorRef}
+                contentEditable
+                className="outline-none text-lg leading-relaxed text-gray-800 dark:text-gray-300 font-serif empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300"
+                data-placeholder={isScrivenings ? "Start writing section..." : "Start writing..."}
+                onInput={handleInput}
+                onDrop={handleDrop}
+            />
+        </div>
+    );
+};
+
+/* --- EDITOR VIEW (Manages Single vs Scrivenings) --- */
+export const EditorView = () => {
+  const { selectedItemIds, items, splitItem } = useAppStore();
+  
+  if (selectedItemIds.length === 0) return <div className="p-10 text-center text-gray-400">No selection</div>;
+
+  const activeItems = selectedItemIds.map(id => items[id]).filter(Boolean);
 
   const execCmd = (command: string, value: string | undefined = undefined) => {
       document.execCommand(command, false, value);
-      handleInput(); 
-      editorRef.current?.focus();
   };
 
-  const ToolbarBtn = ({ icon: Icon, cmd, arg, active }: { icon: any, cmd: string, arg?: string, active?: boolean }) => (
+  const handleSplit = () => {
+      // Logic to split the currently focused editor content
+      // Since we might have multiple editors, we need to know which one has focus.
+      // But typically split happens on the single focused item.
+      // For now, let's assume single selection split or primary selection.
+      const primaryId = selectedItemIds[0];
+      const editorEl = document.getElementById(`editor-${primaryId}`);
+      
+      if (!editorEl) return;
+
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+
+      // Insert a marker
+      const markerId = "split-marker-" + Date.now();
+      const markerHtml = `<span id="${markerId}"></span>`;
+      document.execCommand('insertHTML', false, markerHtml);
+
+      // Now extract content
+      const fullHtml = editorEl.innerHTML;
+      const [before, after] = fullHtml.split(markerHtml);
+
+      if (after !== undefined) {
+          splitItem(primaryId, before, after, "New Split Item");
+      }
+  };
+
+  const ToolbarBtn = ({ icon: Icon, cmd, arg, active, onClick }: { icon: any, cmd?: string, arg?: string, active?: boolean, onClick?: () => void }) => (
       <button 
-        onMouseDown={(e) => { e.preventDefault(); execCmd(cmd, arg); }}
+        onMouseDown={(e) => { 
+            e.preventDefault(); 
+            if (onClick) onClick();
+            else if (cmd) execCmd(cmd, arg); 
+        }}
         className={`p-1.5 rounded hover:bg-gray-200 dark:hover:bg-[#444] text-gray-600 dark:text-gray-300 transition-colors ${active ? 'bg-gray-200 dark:bg-[#444]' : ''}`}
+        title={cmd || "Action"}
       >
           <Icon size={16} />
       </button>
@@ -97,36 +164,34 @@ export const EditorView = () => {
                 <ToolbarBtn icon={Italic} cmd="italic" />
                 <ToolbarBtn icon={Underline} cmd="underline" />
             </div>
-            <div className="flex items-center gap-0.5 px-2 border-r border-gray-200 dark:border-gray-700">
-                <ToolbarBtn icon={AlignLeft} cmd="justifyLeft" />
-                <ToolbarBtn icon={AlignCenter} cmd="justifyCenter" />
-                <ToolbarBtn icon={AlignRight} cmd="justifyRight" />
-            </div>
-             <div className="flex items-center gap-0.5 px-2">
+             <div className="flex items-center gap-0.5 px-2 border-r border-gray-200 dark:border-gray-700">
                 <ToolbarBtn icon={List} cmd="insertUnorderedList" />
                 <ToolbarBtn icon={Quote} cmd="formatBlock" arg="BLOCKQUOTE" />
             </div>
+            <div className="flex items-center gap-0.5 px-2">
+                <ToolbarBtn icon={Scissors} onClick={handleSplit} cmd="" />
+            </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto cursor-text relative" ref={containerRef} onClick={() => editorRef.current?.focus()}>
-        <div className="max-w-4xl mx-auto px-8 py-8 min-h-full pb-[50vh]">
-            <input 
-                type="text" 
-                value={item.title} 
-                onChange={(e) => updateItem(item.id, { title: e.target.value })}
-                className="text-3xl font-bold w-full outline-none bg-transparent dark:text-gray-100 placeholder-gray-300 mb-6"
-                placeholder="Title"
-            />
-            <div
-                ref={editorRef}
-                contentEditable
-                className="outline-none text-lg leading-relaxed text-gray-800 dark:text-gray-300 font-serif empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300"
-                data-placeholder="Start writing..."
-                onInput={handleInput}
-                onKeyUp={centerCaret}
-                onClick={centerCaret}
-            />
-        </div>
+      <div className="flex-1 overflow-y-auto cursor-text relative">
+          {activeItems.map((item, idx) => (
+              <React.Fragment key={item.id}>
+                  {idx > 0 && (
+                      <div className="max-w-4xl mx-auto flex items-center gap-4 py-8 opacity-50 select-none">
+                          <div className="h-px flex-1 bg-gray-300 dark:bg-gray-700"></div>
+                          <span className="text-xs text-gray-400 uppercase tracking-widest">Section Break</span>
+                          <div className="h-px flex-1 bg-gray-300 dark:bg-gray-700"></div>
+                      </div>
+                  )}
+                  {activeItems.length > 1 && (
+                      <div className="max-w-4xl mx-auto px-8 pt-4">
+                          <div className="text-2xl font-bold text-gray-700 dark:text-gray-200">{item.title}</div>
+                      </div>
+                  )}
+                  <SingleEditor item={item} isScrivenings={activeItems.length > 1} />
+              </React.Fragment>
+          ))}
+          <div className="h-[50vh]"></div>
       </div>
     </div>
   );
@@ -134,7 +199,7 @@ export const EditorView = () => {
 
 /* --- CORKBOARD VIEW --- */
 const CorkboardItem: React.FC<{ child: BinderItem }> = ({ child }) => {
-    const { selectedItemId, selectItem, setViewMode, updateItem, moveItem } = useAppStore();
+    const { selectedItemIds, selectItem, setViewMode, updateItem, moveItem } = useAppStore();
     const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
 
     const handleDragStart = (e: React.DragEvent) => {
@@ -145,9 +210,6 @@ const CorkboardItem: React.FC<{ child: BinderItem }> = ({ child }) => {
         e.preventDefault();
         e.stopPropagation();
         const rect = e.currentTarget.getBoundingClientRect();
-        // Use X axis for flow layout or Y for grid? 
-        // In a grid, it's usually about insertion order. We'll use simple Left/Right logic if same row, or just simple intersection.
-        // Let's use generic "middle of box" logic.
         const midX = rect.left + rect.width / 2;
         if (e.clientX < midX) setDragPosition('before');
         else setDragPosition('after');
@@ -179,9 +241,8 @@ const CorkboardItem: React.FC<{ child: BinderItem }> = ({ child }) => {
             onDrop={handleDrop}
             onClick={() => selectItem(child.id, false)}
             onDoubleClick={() => { selectItem(child.id, true); setViewMode('editor'); }}
-            className={`bg-white dark:bg-[#333] shadow-md border rounded-lg h-56 flex flex-col group hover:shadow-lg transition-shadow cursor-pointer relative ${selectedItemId === child.id ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 dark:border-gray-700'} ${getDropStyles()}`}
+            className={`bg-white dark:bg-[#333] shadow-md border rounded-lg h-56 flex flex-col group hover:shadow-lg transition-shadow cursor-pointer relative ${selectedItemIds.includes(child.id) ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 dark:border-gray-700'} ${getDropStyles()}`}
         >
-            {/* Move Handle Icon */}
             <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 text-gray-400 cursor-move z-10">
                 <Grip size={14} />
             </div>
@@ -220,17 +281,6 @@ const CorkboardItem: React.FC<{ child: BinderItem }> = ({ child }) => {
                     <option value="Location">Location</option>
                     <option value="Idea">Idea</option>
                 </select>
-                
-                <select 
-                    className="bg-transparent outline-none cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 text-right"
-                    value={child.status || 'To Do'}
-                    onChange={(e) => updateItem(child.id, { status: e.target.value as any })}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <option value="To Do">To Do</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Done">Done</option>
-                </select>
             </div>
         </div>
     );
@@ -238,6 +288,7 @@ const CorkboardItem: React.FC<{ child: BinderItem }> = ({ child }) => {
 
 export const CorkboardView = () => {
   const { selectedItemId, items } = useAppStore();
+  // For views like corkboard, we typically show children of the *primary* selected item
   const parent = selectedItemId ? items[selectedItemId] : null;
   const children = parent?.children?.map(id => items[id]).filter(Boolean) || [];
 
@@ -260,7 +311,7 @@ export const CorkboardView = () => {
 
 /* --- OUTLINER VIEW --- */
 const OutlinerItemRow: React.FC<{ child: BinderItem, idx: number }> = ({ child, idx }) => {
-    const { selectedItemId, selectItem, setViewMode, updateItem, moveItem } = useAppStore();
+    const { selectedItemIds, selectItem, setViewMode, updateItem, moveItem } = useAppStore();
     const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
 
     const handleDragStart = (e: React.DragEvent) => {
@@ -302,9 +353,8 @@ const OutlinerItemRow: React.FC<{ child: BinderItem, idx: number }> = ({ child, 
             onDrop={handleDrop}
             onClick={() => selectItem(child.id, false)}
             onDoubleClick={() => { selectItem(child.id, true); setViewMode('editor'); }}
-            className={`grid grid-cols-12 gap-4 p-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 items-center transition-colors cursor-pointer group relative ${idx % 2 === 0 ? 'bg-white dark:bg-[#1e1e1e]' : 'bg-gray-50/50 dark:bg-[#222]'} ${selectedItemId === child.id ? 'bg-blue-100 dark:bg-blue-900/30' : ''} ${getDropStyles()}`}
+            className={`grid grid-cols-12 gap-4 p-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 items-center transition-colors cursor-pointer group relative ${idx % 2 === 0 ? 'bg-white dark:bg-[#1e1e1e]' : 'bg-gray-50/50 dark:bg-[#222]'} ${selectedItemIds.includes(child.id) ? 'bg-blue-100 dark:bg-blue-900/30' : ''} ${getDropStyles()}`}
         >
-             {/* Move Handle Icon */}
              <div className="absolute left-1 opacity-0 group-hover:opacity-100 text-gray-400 cursor-move">
                 <GripVertical size={14} />
             </div>
@@ -331,18 +381,6 @@ const OutlinerItemRow: React.FC<{ child: BinderItem, idx: number }> = ({ child, 
                     <option value="Character">Character</option>
                     <option value="Location">Location</option>
                     <option value="Idea">Idea</option>
-                </select>
-            </div>
-            <div className="col-span-2">
-                <select 
-                    className={`w-full px-2 py-0.5 rounded text-xs outline-none ${child.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}
-                    value={child.status || 'To Do'}
-                    onChange={(e) => updateItem(child.id, { status: e.target.value as any })}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <option value="To Do">To Do</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Done">Done</option>
                 </select>
             </div>
             <div className="col-span-3 text-gray-400 flex items-center gap-2">
@@ -381,10 +419,12 @@ export const OutlinerView = () => {
   );
 };
 
-/* --- MIND MAP VIEW (Scapple-like) --- */
+/* --- MIND MAP VIEW --- */
 export const MindMapView = () => {
-    const { selectedItemId, items, updateItem, selectItem, setViewMode } = useAppStore();
-    const parent = selectedItemId ? items[selectedItemId] : null;
+    const { selectedItemIds, items, updateItem, selectItem, setViewMode } = useAppStore();
+    // Default to the first selected item's children for context
+    const primaryId = selectedItemIds[0];
+    const parent = primaryId ? items[primaryId] : null;
     const children = parent?.children?.map(id => items[id]).filter(Boolean) || [];
     
     // Drag state
@@ -399,8 +439,6 @@ export const MindMapView = () => {
 
         hasMoved.current = false;
         
-        // Removed selectItem here so it doesn't select on drag start
-
         const currentX = item.meta?.x || 100;
         const currentY = item.meta?.y || 100;
 
@@ -429,7 +467,6 @@ export const MindMapView = () => {
     };
 
     const handleCardClick = (e: React.MouseEvent, id: string) => {
-        // If we dragged, don't trigger selection click
         if (!hasMoved.current) {
             selectItem(id, false);
         }
@@ -447,12 +484,10 @@ export const MindMapView = () => {
                  style={{backgroundImage: 'radial-gradient(#999 1px, transparent 1px)', backgroundSize: '20px 20px'}}>
             </div>
             
-            {/* SVG Layer for connectors would go here */}
-
             {children.map(node => (
                 <div 
                     key={node.id}
-                    className={`absolute shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[150px] bg-white dark:bg-[#2d2d2d] flex flex-col gap-2 group ${draggingId === node.id ? 'z-50 shadow-xl scale-105' : 'z-10'} ${selectedItemId === node.id ? 'ring-2 ring-blue-500 border-transparent' : ''} transition-transform duration-75`}
+                    className={`absolute shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[150px] bg-white dark:bg-[#2d2d2d] flex flex-col gap-2 group ${draggingId === node.id ? 'z-50 shadow-xl scale-105' : 'z-10'} ${selectedItemIds.includes(node.id) ? 'ring-2 ring-blue-500 border-transparent' : ''} transition-transform duration-75`}
                     style={{
                         left: node.meta?.x || 100,
                         top: node.meta?.y || 100,
@@ -463,7 +498,6 @@ export const MindMapView = () => {
                     onClick={(e) => handleCardClick(e, node.id)}
                     onDoubleClick={(e) => { e.stopPropagation(); selectItem(node.id, true); setViewMode('editor'); }}
                 >
-                     {/* Move Handle Icon */}
                     <div className="absolute -top-2 -left-2 bg-white dark:bg-[#333] p-1 rounded-full shadow border border-gray-200 dark:border-gray-600 opacity-0 group-hover:opacity-100 cursor-move text-gray-400 z-20">
                         <Move size={12} />
                     </div>
@@ -472,14 +506,14 @@ export const MindMapView = () => {
                         className="font-bold text-sm bg-transparent outline-none dark:text-gray-200 cursor-text" 
                         value={node.title} 
                         onChange={(e) => updateItem(node.id, { title: e.target.value })}
-                        onMouseDown={(e) => e.stopPropagation()} // Allow text selection without drag start
+                        onMouseDown={(e) => e.stopPropagation()}
                     />
                      <textarea 
                         className="text-xs text-gray-500 dark:text-gray-400 bg-transparent outline-none resize-none h-12 cursor-text"
                         placeholder="Note..."
                         value={node.synopsis || ''}
                         onChange={(e) => updateItem(node.id, { synopsis: e.target.value })}
-                        onMouseDown={(e) => e.stopPropagation()} // Allow text selection without drag start
+                        onMouseDown={(e) => e.stopPropagation()}
                      />
                 </div>
             ))}
@@ -492,9 +526,8 @@ export const MindMapView = () => {
     );
 };
 
-/* --- TIMELINE VIEW (Plottr-like) --- */
+/* --- TIMELINE VIEW --- */
 export const TimelineView = () => {
-    // Simplified horizontal scroll view
     return (
         <div className="h-full bg-white dark:bg-[#1e1e1e] overflow-x-auto overflow-y-hidden flex flex-col p-4">
              <div className="flex gap-4 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2 min-w-max">
@@ -504,7 +537,6 @@ export const TimelineView = () => {
                  ))}
              </div>
              
-             {/* Main Plot Lane */}
              <div className="flex gap-4 mb-4 min-w-max">
                  <div className="w-32 flex items-center justify-end pr-4 font-bold text-blue-500">Main Plot</div>
                  {[1, 2, 3].map(i => (
@@ -516,10 +548,9 @@ export const TimelineView = () => {
                  ))}
              </div>
 
-              {/* Sub Plot Lane */}
               <div className="flex gap-4 min-w-max">
                  <div className="w-32 flex items-center justify-end pr-4 font-bold text-purple-500">Sub Plot</div>
-                 <div className="w-64"></div> {/* Spacer */}
+                 <div className="w-64"></div> 
                  <div className="w-64 h-32 bg-purple-50 dark:bg-purple-900/20 border-l-4 border-purple-400 rounded p-3 shadow-sm hover:shadow-md transition-shadow">
                      <div className="text-sm font-bold text-purple-900 dark:text-purple-100 mb-1">Romantic Tension</div>
                      <div className="text-xs text-gray-600 dark:text-gray-400 leading-tight">They meet in the rain...</div>

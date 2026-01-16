@@ -8,6 +8,8 @@ export enum ItemType {
   TRASH = 'TRASH'
 }
 
+export type LabelTint = 'none' | 'icon' | 'dot' | 'row';
+
 export interface BinderItem {
   id: string;
   parentId: string | null;
@@ -20,6 +22,17 @@ export interface BinderItem {
   wordCountTarget?: number;
   icon?: string; // Custom icon name
   
+  // Indicators
+  hasSnapshots?: boolean;
+  hasComments?: boolean;
+  
+  // External Sync
+  externalSync?: {
+      enabled: boolean;
+      path: string;
+      lastSync?: Date;
+  };
+
   // Specific to MindMap/Timeline
   meta?: {
     x?: number;
@@ -31,7 +44,7 @@ export interface BinderItem {
     timelineLane?: string;
   };
   
-  children?: string[]; // IDs of children (denormalized for easier tree rendering, but source of truth is parentId)
+  children?: string[]; // IDs of children
   expanded?: boolean;
 }
 
@@ -50,12 +63,22 @@ export interface AppState {
   rootItems: string[]; // Top level IDs
 
   // Selection
-  selectedItemId: string | null;
+  selectedItemId: string | null; // The "active" or "focused" item
+  selectedItemIds: string[]; // All selected items (for Group/Scrivenings mode)
   
   // Binder View State
+  binderTab: 'binder' | 'collections';
   binderSearchTerm: string;
   hoistedItemId: string | null;
+  binderSettings: {
+      labelTint: LabelTint;
+      showIcons: boolean;
+      showStatus: boolean;
+  };
   
+  // Project Bookmarks (Pinned items)
+  projectBookmarks: string[];
+
   // UI State
   inspectorOpen: boolean;
   topDrawerOpen: boolean;
@@ -64,7 +87,7 @@ export interface AppState {
   // Actions
   createProject: (name: string) => void;
   openProject: (id: string) => void;
-  selectItem: (id: string, autoSwitchView?: boolean) => void;
+  selectItem: (id: string, multi?: boolean, range?: boolean) => void;
   toggleInspector: () => void;
   toggleTopDrawer: () => void;
   setBinderItemExpanded: (id: string, expanded: boolean) => void;
@@ -77,4 +100,13 @@ export interface AppState {
   // Binder Actions
   setBinderSearchTerm: (term: string) => void;
   setHoistedItemId: (id: string | null) => void;
+  setBinderTab: (tab: 'binder' | 'collections') => void;
+  updateBinderSettings: (settings: Partial<AppState['binderSettings']>) => void;
+
+  // Advanced Features
+  splitItem: (id: string, contentBefore: string, contentAfter: string, splitTitle: string) => void;
+  mergeItems: (targetId: string, sourceIds: string[]) => void;
+  toggleBookmark: (id: string) => void;
+  importAndSplit: (parentId: string, content: string, separator: string) => void;
+  setSyncSettings: (id: string, settings: BinderItem['externalSync']) => void;
 }
