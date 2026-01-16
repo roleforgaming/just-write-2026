@@ -4,7 +4,8 @@ export enum ItemType {
   FOLDER = 'FOLDER',
   TEXT = 'TEXT',
   MINDMAP = 'MINDMAP',
-  TIMELINE = 'TIMELINE'
+  TIMELINE = 'TIMELINE',
+  TRASH = 'TRASH'
 }
 
 export interface BinderItem {
@@ -16,6 +17,8 @@ export interface BinderItem {
   synopsis?: string;
   status?: 'To Do' | 'In Progress' | 'Done';
   label?: 'Chapter' | 'Scene' | 'Character' | 'Location' | 'Idea';
+  wordCountTarget?: number;
+  icon?: string; // Custom icon name
   
   // Specific to MindMap/Timeline
   meta?: {
@@ -42,12 +45,16 @@ export interface AppState {
   currentView: 'dashboard' | 'workspace';
   activeProjectId: string | null;
   
-  // Binder Data (Flat list is often easier for DND, but Tree is needed for UI. We'll use a hybrid or flat list with parent pointers)
+  // Binder Data
   items: Record<string, BinderItem>;
   rootItems: string[]; // Top level IDs
 
   // Selection
   selectedItemId: string | null;
+  
+  // Binder View State
+  binderSearchTerm: string;
+  hoistedItemId: string | null;
   
   // UI State
   inspectorOpen: boolean;
@@ -57,7 +64,7 @@ export interface AppState {
   // Actions
   createProject: (name: string) => void;
   openProject: (id: string) => void;
-  selectItem: (id: string) => void;
+  selectItem: (id: string, autoSwitchView?: boolean) => void;
   toggleInspector: () => void;
   toggleTopDrawer: () => void;
   setBinderItemExpanded: (id: string, expanded: boolean) => void;
@@ -65,4 +72,9 @@ export interface AppState {
   moveItem: (draggedId: string, targetId: string, position: 'before' | 'inside' | 'after') => void;
   setViewMode: (mode: ViewMode) => void;
   addItem: (parentId: string | null, type: ItemType, title: string) => void;
+  deleteItem: (id: string) => void;
+  
+  // Binder Actions
+  setBinderSearchTerm: (term: string) => void;
+  setHoistedItemId: (id: string | null) => void;
 }

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../store';
-import { ItemType } from '../types';
+import { ItemType, BinderItem } from '../types';
 import { 
     StickyNote, 
     Move, 
@@ -18,7 +18,9 @@ import {
     Type,
     Heading1,
     Heading2,
-    Quote
+    Quote,
+    GripVertical,
+    Grip
 } from 'lucide-react';
 
 /* --- EDITOR VIEW --- */
@@ -26,33 +28,50 @@ export const EditorView = () => {
   const { selectedItemId, items, updateItem } = useAppStore();
   const item = selectedItemId ? items[selectedItemId] : null;
   const editorRef = useRef<HTMLDivElement>(null);
-  
-  // Ref to track if the update is coming from local input
+  const containerRef = useRef<HTMLDivElement>(null);
   const isLocalUpdate = useRef(false);
 
   useEffect(() => {
     if (editorRef.current && item) {
-        // Only update DOM if the content is different and we didn't just type it
         if (editorRef.current.innerHTML !== item.content) {
-             // If local update flag is true, it means we just typed, so don't overwrite (though condition above usually handles this)
-             // However, for safety, we only overwrite from store if it's external change or initial load
              if (!isLocalUpdate.current) {
                 editorRef.current.innerHTML = item.content || '';
              }
         }
-        // Reset local update flag after render cycle
         isLocalUpdate.current = false;
     }
   }, [item?.content, item?.id]);
+
+  const handleInput = () => {
+      if (editorRef.current) {
+          isLocalUpdate.current = true;
+          updateItem(item!.id, { content: editorRef.current.innerHTML });
+          centerCaret();
+      }
+  };
+
+  const centerCaret = () => {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && containerRef.current) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          const containerRect = containerRef.current.getBoundingClientRect();
+          
+          const offsetTop = rect.top - containerRect.top;
+          const targetY = containerRect.height / 2;
+          
+          if (Math.abs(offsetTop - targetY) > 20) {
+             const scrollAmount = rect.top - (containerRect.top + containerRect.height / 2);
+             containerRef.current.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+          }
+      }
+  };
 
   if (!item) return <div className="p-10 text-center text-gray-400">No selection</div>;
 
   const execCmd = (command: string, value: string | undefined = undefined) => {
       document.execCommand(command, false, value);
-      if (editorRef.current) {
-          isLocalUpdate.current = true;
-          updateItem(item.id, { content: editorRef.current.innerHTML });
-      }
+      handleInput(); 
       editorRef.current?.focus();
   };
 
@@ -66,18 +85,8 @@ export const EditorView = () => {
   );
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-[#1e1e1e] shadow-sm mx-auto max-w-4xl w-full border-x border-gray-100 dark:border-gray-800">
-      <div className="p-8 pb-2">
-        <input 
-            type="text" 
-            value={item.title} 
-            onChange={(e) => updateItem(item.id, { title: e.target.value })}
-            className="text-3xl font-bold w-full outline-none bg-transparent dark:text-gray-100 placeholder-gray-300 mb-4"
-            placeholder="Title"
-        />
-        
-        {/* Rich Text Toolbar - Word-like */}
-        <div className="flex items-center gap-1 p-1 bg-gray-50 dark:bg-[#252525] border border-gray-200 dark:border-gray-700 rounded-lg w-max mb-4">
+    <div className="h-full flex flex-col bg-white dark:bg-[#1e1e1e] shadow-sm mx-auto w-full">
+      <div className="flex items-center gap-1 p-2 bg-gray-50 dark:bg-[#252525] border-b border-gray-200 dark:border-gray-700 w-full sticky top-0 z-20">
             <div className="flex items-center gap-0.5 px-2 border-r border-gray-200 dark:border-gray-700">
                 <ToolbarBtn icon={Heading1} cmd="formatBlock" arg="H1" />
                 <ToolbarBtn icon={Heading2} cmd="formatBlock" arg="H2" />
@@ -97,29 +106,136 @@ export const EditorView = () => {
                 <ToolbarBtn icon={List} cmd="insertUnorderedList" />
                 <ToolbarBtn icon={Quote} cmd="formatBlock" arg="BLOCKQUOTE" />
             </div>
-        </div>
       </div>
 
-      <div className="flex-1 px-8 pb-8 overflow-y-auto cursor-text" onClick={() => editorRef.current?.focus()}>
-        <div
-            ref={editorRef}
-            contentEditable
-            className="outline-none text-lg leading-relaxed text-gray-800 dark:text-gray-300 font-serif min-h-[500px] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300"
-            data-placeholder="Start writing..."
-            onInput={() => {
-                if (editorRef.current) {
-                    isLocalUpdate.current = true;
-                    updateItem(item.id, { content: editorRef.current.innerHTML });
-                }
-            }}
-            style={{ minHeight: '100%' }}
-        />
+      <div className="flex-1 overflow-y-auto cursor-text relative" ref={containerRef} onClick={() => editorRef.current?.focus()}>
+        <div className="max-w-4xl mx-auto px-8 py-8 min-h-full pb-[50vh]">
+            <input 
+                type="text" 
+                value={item.title} 
+                onChange={(e) => updateItem(item.id, { title: e.target.value })}
+                className="text-3xl font-bold w-full outline-none bg-transparent dark:text-gray-100 placeholder-gray-300 mb-6"
+                placeholder="Title"
+            />
+            <div
+                ref={editorRef}
+                contentEditable
+                className="outline-none text-lg leading-relaxed text-gray-800 dark:text-gray-300 font-serif empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300"
+                data-placeholder="Start writing..."
+                onInput={handleInput}
+                onKeyUp={centerCaret}
+                onClick={centerCaret}
+            />
+        </div>
       </div>
     </div>
   );
 };
 
 /* --- CORKBOARD VIEW --- */
+const CorkboardItem: React.FC<{ child: BinderItem }> = ({ child }) => {
+    const { selectedItemId, selectItem, setViewMode, updateItem, moveItem } = useAppStore();
+    const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
+
+    const handleDragStart = (e: React.DragEvent) => {
+        e.dataTransfer.setData('application/json', JSON.stringify({ id: child.id }));
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        // Use X axis for flow layout or Y for grid? 
+        // In a grid, it's usually about insertion order. We'll use simple Left/Right logic if same row, or just simple intersection.
+        // Let's use generic "middle of box" logic.
+        const midX = rect.left + rect.width / 2;
+        if (e.clientX < midX) setDragPosition('before');
+        else setDragPosition('after');
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragPosition(null);
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (data.id && data.id !== child.id && dragPosition) {
+                moveItem(data.id, child.id, dragPosition);
+            }
+        } catch (err) {}
+    };
+
+    const getDropStyles = () => {
+        if (dragPosition === 'before') return 'border-l-4 border-l-blue-500';
+        if (dragPosition === 'after') return 'border-r-4 border-r-blue-500';
+        return '';
+    };
+
+    return (
+        <div 
+            draggable
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragLeave={() => setDragPosition(null)}
+            onDrop={handleDrop}
+            onClick={() => selectItem(child.id, false)}
+            onDoubleClick={() => { selectItem(child.id, true); setViewMode('editor'); }}
+            className={`bg-white dark:bg-[#333] shadow-md border rounded-lg h-56 flex flex-col group hover:shadow-lg transition-shadow cursor-pointer relative ${selectedItemId === child.id ? 'ring-2 ring-blue-500 border-transparent' : 'border-gray-200 dark:border-gray-700'} ${getDropStyles()}`}
+        >
+            {/* Move Handle Icon */}
+            <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 text-gray-400 cursor-move z-10">
+                <Grip size={14} />
+            </div>
+
+            <div className="p-3 border-b border-gray-100 dark:border-gray-600 font-semibold text-sm flex justify-between items-center text-gray-800 dark:text-gray-200 gap-2 pl-8">
+                <input 
+                    className="truncate bg-transparent outline-none w-full"
+                    value={child.title}
+                    onChange={(e) => updateItem(child.id, { title: e.target.value })}
+                    onClick={(e) => e.stopPropagation()} 
+                />
+                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${child.status === 'Done' ? 'bg-green-400' : child.status === 'In Progress' ? 'bg-yellow-400' : 'bg-gray-300'}`} />
+            </div>
+            
+            <div className="flex-1 p-3 overflow-hidden">
+                <textarea 
+                    className="w-full h-full resize-none text-xs text-gray-500 dark:text-gray-400 bg-transparent outline-none leading-relaxed"
+                    placeholder="No synopsis..."
+                    value={child.synopsis || ''}
+                    onChange={(e) => updateItem(child.id, { synopsis: e.target.value })}
+                    onClick={(e) => e.stopPropagation()}
+                />
+            </div>
+            
+            <div className="p-2 bg-gray-50 dark:bg-[#2a2a2a] text-xs text-gray-400 rounded-b-lg border-t border-gray-100 dark:border-gray-600 flex justify-between items-center">
+                <select 
+                    className="bg-transparent outline-none cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
+                    value={child.label || ''}
+                    onChange={(e) => updateItem(child.id, { label: e.target.value as any })}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <option value="">No Label</option>
+                    <option value="Chapter">Chapter</option>
+                    <option value="Scene">Scene</option>
+                    <option value="Character">Character</option>
+                    <option value="Location">Location</option>
+                    <option value="Idea">Idea</option>
+                </select>
+                
+                <select 
+                    className="bg-transparent outline-none cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 text-right"
+                    value={child.status || 'To Do'}
+                    onChange={(e) => updateItem(child.id, { status: e.target.value as any })}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <option value="To Do">To Do</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Done">Done</option>
+                </select>
+            </div>
+        </div>
+    );
+};
+
 export const CorkboardView = () => {
   const { selectedItemId, items } = useAppStore();
   const parent = selectedItemId ? items[selectedItemId] : null;
@@ -127,7 +243,7 @@ export const CorkboardView = () => {
 
   return (
     <div className="h-full bg-stone-100 dark:bg-[#252525] p-6 overflow-y-auto">
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 pb-20">
         {children.length === 0 && (
            <div className="col-span-full flex flex-col items-center justify-center h-64 text-gray-400">
                <StickyNote size={48} className="mb-2 opacity-50"/>
@@ -135,18 +251,7 @@ export const CorkboardView = () => {
            </div>
         )}
         {children.map(child => (
-          <div key={child.id} className="bg-white dark:bg-[#333] shadow-md border border-gray-200 dark:border-gray-700 rounded-lg h-48 flex flex-col group hover:shadow-lg transition-shadow cursor-pointer">
-            <div className="p-3 border-b border-gray-100 dark:border-gray-600 font-semibold text-sm truncate flex justify-between items-center text-gray-800 dark:text-gray-200">
-                <span className="truncate">{child.title}</span>
-                <div className={`w-3 h-3 rounded-full ${child.status === 'Done' ? 'bg-green-400' : child.status === 'In Progress' ? 'bg-yellow-400' : 'bg-gray-300'}`} />
-            </div>
-            <div className="p-3 text-xs text-gray-500 dark:text-gray-400 flex-1 overflow-hidden leading-relaxed">
-              {child.synopsis || child.content?.substring(0, 100).replace(/<[^>]*>?/gm, '') || "No synopsis..."}
-            </div>
-            <div className="p-2 bg-gray-50 dark:bg-[#2a2a2a] text-xs text-gray-400 rounded-b-lg border-t border-gray-100 dark:border-gray-600 flex justify-between">
-                <span>{child.label || 'Document'}</span>
-            </div>
-          </div>
+            <CorkboardItem key={child.id} child={child} />
         ))}
       </div>
     </div>
@@ -154,6 +259,106 @@ export const CorkboardView = () => {
 };
 
 /* --- OUTLINER VIEW --- */
+const OutlinerItemRow: React.FC<{ child: BinderItem, idx: number }> = ({ child, idx }) => {
+    const { selectedItemId, selectItem, setViewMode, updateItem, moveItem } = useAppStore();
+    const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
+
+    const handleDragStart = (e: React.DragEvent) => {
+        e.dataTransfer.setData('application/json', JSON.stringify({ id: child.id }));
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (e.clientY < midY) setDragPosition('before');
+        else setDragPosition('after');
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragPosition(null);
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (data.id && data.id !== child.id && dragPosition) {
+                moveItem(data.id, child.id, dragPosition);
+            }
+        } catch (err) {}
+    };
+
+    const getDropStyles = () => {
+        if (dragPosition === 'before') return 'border-t-2 border-t-blue-500';
+        if (dragPosition === 'after') return 'border-b-2 border-b-blue-500';
+        return 'border-b border-gray-100 dark:border-gray-800';
+    };
+
+    return (
+        <div 
+            draggable
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragLeave={() => setDragPosition(null)}
+            onDrop={handleDrop}
+            onClick={() => selectItem(child.id, false)}
+            onDoubleClick={() => { selectItem(child.id, true); setViewMode('editor'); }}
+            className={`grid grid-cols-12 gap-4 p-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 items-center transition-colors cursor-pointer group relative ${idx % 2 === 0 ? 'bg-white dark:bg-[#1e1e1e]' : 'bg-gray-50/50 dark:bg-[#222]'} ${selectedItemId === child.id ? 'bg-blue-100 dark:bg-blue-900/30' : ''} ${getDropStyles()}`}
+        >
+             {/* Move Handle Icon */}
+             <div className="absolute left-1 opacity-0 group-hover:opacity-100 text-gray-400 cursor-move">
+                <GripVertical size={14} />
+            </div>
+
+            <div className="col-span-5 pl-6 font-medium text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                {child.type === ItemType.FOLDER ? <span className="text-blue-400">📁</span> : <span className="text-gray-400">📄</span>}
+                <input 
+                    className="bg-transparent outline-none w-full"
+                    value={child.title}
+                    onChange={(e) => updateItem(child.id, { title: e.target.value })}
+                    onClick={(e) => e.stopPropagation()}
+                />
+            </div>
+            <div className="col-span-2">
+                    <select 
+                    className="bg-transparent outline-none w-full px-2 py-0.5 rounded text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700"
+                    value={child.label || ''}
+                    onChange={(e) => updateItem(child.id, { label: e.target.value as any })}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <option value="">-</option>
+                    <option value="Chapter">Chapter</option>
+                    <option value="Scene">Scene</option>
+                    <option value="Character">Character</option>
+                    <option value="Location">Location</option>
+                    <option value="Idea">Idea</option>
+                </select>
+            </div>
+            <div className="col-span-2">
+                <select 
+                    className={`w-full px-2 py-0.5 rounded text-xs outline-none ${child.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}
+                    value={child.status || 'To Do'}
+                    onChange={(e) => updateItem(child.id, { status: e.target.value as any })}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <option value="To Do">To Do</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Done">Done</option>
+                </select>
+            </div>
+            <div className="col-span-3 text-gray-400 flex items-center gap-2">
+                <span>0 / </span>
+                <input 
+                    type="number"
+                    className="bg-transparent outline-none w-16 border-b border-dashed border-gray-300 text-gray-600 dark:text-gray-400 focus:border-blue-500"
+                    value={child.wordCountTarget || 0}
+                    onChange={(e) => updateItem(child.id, { wordCountTarget: parseInt(e.target.value) || 0 })}
+                    onClick={(e) => e.stopPropagation()}
+                />
+            </div>
+        </div>
+    );
+};
+
 export const OutlinerView = () => {
   const { selectedItemId, items } = useAppStore();
   const parent = selectedItemId ? items[selectedItemId] : null;
@@ -162,30 +367,14 @@ export const OutlinerView = () => {
   return (
     <div className="h-full bg-white dark:bg-[#1e1e1e] flex flex-col">
         <div className="grid grid-cols-12 gap-4 p-3 border-b border-gray-200 dark:border-gray-700 font-semibold text-xs text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-[#252525]">
-            <div className="col-span-6 pl-4">Title</div>
+            <div className="col-span-5 pl-4">Title</div>
             <div className="col-span-2">Label</div>
             <div className="col-span-2">Status</div>
-            <div className="col-span-2">Target Word Count</div>
+            <div className="col-span-3">Target Word Count</div>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto pb-10">
             {children.map((child, idx) => (
-                <div key={child.id} className={`grid grid-cols-12 gap-4 p-3 border-b border-gray-100 dark:border-gray-800 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 items-center ${idx % 2 === 0 ? 'bg-white dark:bg-[#1e1e1e]' : 'bg-gray-50/50 dark:bg-[#222]'}`}>
-                    <div className="col-span-6 pl-4 font-medium text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                        {child.type === ItemType.FOLDER ? <span className="text-blue-400">📁</span> : <span className="text-gray-400">📄</span>}
-                        {child.title}
-                    </div>
-                    <div className="col-span-2">
-                         <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-300">{child.label || '-'}</span>
-                    </div>
-                    <div className="col-span-2">
-                        <span className={`px-2 py-0.5 rounded text-xs ${child.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
-                            {child.status || 'No Status'}
-                        </span>
-                    </div>
-                    <div className="col-span-2 text-gray-400">
-                        0 / 1000
-                    </div>
-                </div>
+                <OutlinerItemRow key={child.id} child={child} idx={idx} />
             ))}
         </div>
     </div>
@@ -194,19 +383,24 @@ export const OutlinerView = () => {
 
 /* --- MIND MAP VIEW (Scapple-like) --- */
 export const MindMapView = () => {
-    const { selectedItemId, items, updateItem } = useAppStore();
+    const { selectedItemId, items, updateItem, selectItem, setViewMode } = useAppStore();
     const parent = selectedItemId ? items[selectedItemId] : null;
     const children = parent?.children?.map(id => items[id]).filter(Boolean) || [];
     
     // Drag state
     const [draggingId, setDraggingId] = useState<string | null>(null);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    const hasMoved = useRef(false);
 
     const handleMouseDown = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation(); // Prevent container click
+        e.stopPropagation(); 
         const item = items[id];
         if (!item) return;
+
+        hasMoved.current = false;
         
+        // Removed selectItem here so it doesn't select on drag start
+
         const currentX = item.meta?.x || 100;
         const currentY = item.meta?.y || 100;
 
@@ -220,10 +414,10 @@ export const MindMapView = () => {
     const handleMouseMove = (e: React.MouseEvent) => {
         if (draggingId) {
             e.preventDefault();
+            hasMoved.current = true;
             const newX = e.clientX - dragOffset.x;
             const newY = e.clientY - dragOffset.y;
             
-            // Direct update to store - might need optimization in large apps but fine here
             updateItem(draggingId, { 
                 meta: { ...items[draggingId].meta, x: newX, y: newY } 
             });
@@ -232,6 +426,14 @@ export const MindMapView = () => {
 
     const handleMouseUp = () => {
         setDraggingId(null);
+    };
+
+    const handleCardClick = (e: React.MouseEvent, id: string) => {
+        // If we dragged, don't trigger selection click
+        if (!hasMoved.current) {
+            selectItem(id, false);
+        }
+        hasMoved.current = false;
     };
 
     return (
@@ -250,7 +452,7 @@ export const MindMapView = () => {
             {children.map(node => (
                 <div 
                     key={node.id}
-                    className={`absolute shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[150px] bg-white dark:bg-[#2d2d2d] flex flex-col gap-2 cursor-move ${draggingId === node.id ? 'z-50 shadow-xl scale-105' : 'z-10'} transition-transform duration-75`}
+                    className={`absolute shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[150px] bg-white dark:bg-[#2d2d2d] flex flex-col gap-2 group ${draggingId === node.id ? 'z-50 shadow-xl scale-105' : 'z-10'} ${selectedItemId === node.id ? 'ring-2 ring-blue-500 border-transparent' : ''} transition-transform duration-75`}
                     style={{
                         left: node.meta?.x || 100,
                         top: node.meta?.y || 100,
@@ -258,7 +460,14 @@ export const MindMapView = () => {
                         borderLeftWidth: '4px'
                     }}
                     onMouseDown={(e) => handleMouseDown(e, node.id)}
+                    onClick={(e) => handleCardClick(e, node.id)}
+                    onDoubleClick={(e) => { e.stopPropagation(); selectItem(node.id, true); setViewMode('editor'); }}
                 >
+                     {/* Move Handle Icon */}
+                    <div className="absolute -top-2 -left-2 bg-white dark:bg-[#333] p-1 rounded-full shadow border border-gray-200 dark:border-gray-600 opacity-0 group-hover:opacity-100 cursor-move text-gray-400 z-20">
+                        <Move size={12} />
+                    </div>
+
                     <input 
                         className="font-bold text-sm bg-transparent outline-none dark:text-gray-200 cursor-text" 
                         value={node.title} 
