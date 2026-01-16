@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { AppState, BinderItem, ItemType, ViewMode } from './types';
 import { v4 as uuidv4 } from 'uuid'; 
@@ -6,12 +7,53 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const INITIAL_ITEMS: Record<string, BinderItem> = {
   'root-draft': { id: 'root-draft', parentId: null, title: 'Draft', type: ItemType.FOLDER, expanded: true, children: ['ch-1', 'ch-2'] },
-  'ch-1': { id: 'ch-1', parentId: 'root-draft', title: 'Chapter 1: The Beginning', type: ItemType.FOLDER, expanded: false, children: ['scene-1-1'], status: 'Done', label: 'Chapter', hasSnapshots: true },
-  'scene-1-1': { id: 'scene-1-1', parentId: 'ch-1', title: 'The Incident', type: ItemType.TEXT, content: '<p>It was a dark and stormy night...</p>', synopsis: 'Hero meets the villain.', status: 'Done', label: 'Scene', wordCountTarget: 1500, hasComments: true },
-  'ch-2': { id: 'ch-2', parentId: 'root-draft', title: 'Chapter 2: The Journey', type: ItemType.FOLDER, expanded: false, children: [], status: 'In Progress', label: 'Chapter' },
+  'ch-1': { 
+      id: 'ch-1', 
+      parentId: 'root-draft', 
+      title: 'Chapter 1: The Beginning', 
+      type: ItemType.FOLDER, 
+      expanded: true, 
+      children: ['scene-1-1'], 
+      status: 'Done', 
+      label: 'Chapter', 
+      hasSnapshots: true,
+      keywords: ['Protagonist', 'Inciting Incident'],
+      wordCount: 1250,
+      wordCountTarget: 3000,
+      modifiedDate: new Date('2023-10-01')
+  },
+  'scene-1-1': { 
+      id: 'scene-1-1', 
+      parentId: 'ch-1', 
+      title: 'The Incident', 
+      type: ItemType.TEXT, 
+      content: '<p>It was a dark and stormy night...</p>', 
+      synopsis: 'Hero meets the villain in a dimly lit tavern. Sparks fly, literally and metaphorically.', 
+      status: 'Done', 
+      label: 'Scene', 
+      wordCount: 1250,
+      wordCountTarget: 1500, 
+      hasComments: true,
+      keywords: ['Action', 'Rain'],
+      modifiedDate: new Date('2023-10-01'),
+      customMetadata: { 'pov': 'Hero' }
+  },
+  'ch-2': { 
+      id: 'ch-2', 
+      parentId: 'root-draft', 
+      title: 'Chapter 2: The Journey', 
+      type: ItemType.FOLDER, 
+      expanded: false, 
+      children: [], 
+      status: 'In Progress', 
+      label: 'Chapter',
+      wordCount: 0,
+      wordCountTarget: 3000,
+      modifiedDate: new Date('2023-10-02')
+  },
   
   'root-research': { id: 'root-research', parentId: null, title: 'Research', type: ItemType.FOLDER, expanded: true, children: ['res-1'] },
-  'res-1': { id: 'res-1', parentId: 'root-research', title: 'Historical Context', type: ItemType.TEXT, content: 'Notes on 1920s architecture.', status: 'To Do', label: 'Idea', icon: 'lightbulb' },
+  'res-1': { id: 'res-1', parentId: 'root-research', title: 'Historical Context', type: ItemType.TEXT, content: 'Notes on 1920s architecture.', status: 'To Do', label: 'Idea', icon: 'lightbulb', modifiedDate: new Date() },
   
   'root-trash': { id: 'root-trash', parentId: null, title: 'Trash', type: ItemType.TRASH, expanded: false, children: [] },
 };
@@ -26,6 +68,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   selectedItemId: 'root-draft',
   selectedItemIds: ['root-draft'],
+  viewRootId: 'root-draft', // Initial view root matches selection
   
   inspectorOpen: true,
   topDrawerOpen: false,
@@ -39,6 +82,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       showIcons: true,
       showStatus: true
   },
+  
+  corkboardSettings: {
+      mode: 'grid',
+      cardSize: 2,
+      ratio: '3:5',
+      showStatus: true,
+      showKeywords: true,
+      showLabel: true
+  },
+
+  outlinerSettings: {
+      columns: [
+          { id: 'title', label: 'Title', visible: true, width: '3fr' },
+          { id: 'synopsis', label: 'Synopsis', visible: true, width: '4fr' },
+          { id: 'label', label: 'Label', visible: true, width: '120px' },
+          { id: 'status', label: 'Status', visible: true, width: '120px' },
+          { id: 'wordCount', label: 'Words', visible: true, width: '80px' },
+          { id: 'progress', label: 'Target', visible: true, width: '140px' },
+          { id: 'modifiedDate', label: 'Modified', visible: false, width: '120px' },
+          { id: 'pov', label: 'POV', visible: true, width: '100px', isCustom: true }
+      ],
+      sortBy: null,
+      sortDirection: 'asc'
+  },
+  
+  customMetadataFields: [
+      { id: 'pov', name: 'POV', type: 'text' }
+  ],
 
   projectBookmarks: [],
 
@@ -50,7 +121,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ currentView: 'workspace', activeProjectId: id });
   },
 
-  selectItem: (id, multi = false, range = false) => {
+  selectItem: (id, multi = false, range = false, autoSwitchView = true) => {
     const state = get();
     const item = state.items[id];
     if (!item) return;
@@ -59,7 +130,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     if (multi) {
         if (newSelectedIds.includes(id)) {
-            // Deselect if already selected (unless it's the only one)
             if (newSelectedIds.length > 1) {
                 newSelectedIds = newSelectedIds.filter(itemId => itemId !== id);
             }
@@ -72,14 +142,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         newSelectedIds = [id];
     }
 
-    // Determine view mode based on selection
     let mode = state.viewMode;
-    // Auto-switch view only on single selection
-    if (!multi && !range && newSelectedIds.length === 1) {
-        if (item.type === ItemType.MINDMAP) mode = 'mindmap';
-        else if (item.type === ItemType.TIMELINE) mode = 'timeline';
-        else if (item.type === ItemType.FOLDER && mode === 'editor') mode = 'corkboard'; 
-        else if (item.type === ItemType.TEXT) mode = 'editor';
+    // Don't auto-switch if we are already in outliner, unless autoSwitchView forces logic
+    if (autoSwitchView) {
+        if (mode !== 'outliner') {
+            if (!multi && !range && newSelectedIds.length === 1) {
+                if (item.type === ItemType.MINDMAP) mode = 'mindmap';
+                else if (item.type === ItemType.TIMELINE) mode = 'timeline';
+                else if (item.type === ItemType.FOLDER && mode === 'editor') mode = 'corkboard'; 
+                else if (item.type === ItemType.TEXT) mode = 'editor';
+            }
+        }
     }
 
     set({ 
@@ -88,6 +161,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         viewMode: mode 
     });
   },
+
+  setViewRoot: (id) => set({ viewRootId: id }),
 
   toggleInspector: () => set((state) => ({ inspectorOpen: !state.inspectorOpen })),
   toggleTopDrawer: () => set((state) => ({ topDrawerOpen: !state.topDrawerOpen })),
@@ -105,7 +180,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       items: {
         ...state.items,
-        [id]: { ...state.items[id], ...updates },
+        [id]: { 
+            ...state.items[id], 
+            ...updates,
+            modifiedDate: new Date()
+        },
       },
     }));
   },
@@ -119,7 +198,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       type,
       children: [],
       expanded: true,
-      status: 'To Do'
+      status: 'To Do',
+      createdDate: new Date(),
+      modifiedDate: new Date(),
+      wordCount: 0,
+      corkboard: { x: Math.random() * 400, y: Math.random() * 400 } // Random pos for freeform
     };
 
     set((state) => {
@@ -147,7 +230,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (draggedId === targetId) return state;
         if (state.rootItems.includes(draggedId)) return state;
 
-        // Remove from old parent
         const oldParentId = draggedItem.parentId;
         if (oldParentId && items[oldParentId]) {
             items[oldParentId] = {
@@ -156,7 +238,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             };
         }
 
-        // Add to new location
         if (position === 'inside') {
             items[targetId] = {
                 ...items[targetId],
@@ -202,12 +283,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!target) return state;
 
       let newContent = target.content || '';
+      let mergedWordCount = target.wordCount || 0;
 
       sourceIds.forEach(id => {
           if (id === targetId) return;
           const source = items[id];
           if (source && source.content) {
               newContent += `<br/><div class="merge-separator" style="text-align:center; color:#ccc; margin: 20px 0;">***</div><br/>` + source.content;
+              mergedWordCount += (source.wordCount || 0);
           }
           if (source.parentId && items[source.parentId]) {
                items[source.parentId] = {
@@ -218,7 +301,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           delete items[id];
       });
 
-      items[targetId] = { ...target, content: newContent };
+      items[targetId] = { ...target, content: newContent, wordCount: mergedWordCount, modifiedDate: new Date() };
       
       return { items, selectedItemIds: [targetId], selectedItemId: targetId };
   }),
@@ -228,7 +311,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const original = items[id];
       if (!original || !original.parentId) return state;
 
-      items[id] = { ...original, content: contentBefore };
+      const countBefore = contentBefore.replace(/<[^>]*>/g, '').split(/\s+/).filter(w => w.length > 0).length;
+      const countAfter = contentAfter.replace(/<[^>]*>/g, '').split(/\s+/).filter(w => w.length > 0).length;
+
+      items[id] = { ...original, content: contentBefore, wordCount: countBefore, modifiedDate: new Date() };
 
       const newId = generateId();
       const newItem: BinderItem = {
@@ -236,7 +322,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           id: newId,
           title: splitTitle,
           content: contentAfter,
-          children: [] 
+          children: [],
+          wordCount: countAfter,
+          modifiedDate: new Date()
       };
 
       items[newId] = newItem;
@@ -254,17 +342,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   importAndSplit: (parentId, content, separator) => set(state => {
       const items = { ...state.items };
-      // Regex split based on separator. If separator is '#', split by it.
-      // Use capture groups to keep delimiter if needed, but for now simple split.
       const parts = content.split(separator).filter(p => p.trim().length > 0);
-      
       const newIds: string[] = [];
 
       parts.forEach((part, index) => {
           const lines = part.trim().split('\n');
           const title = lines[0] || `Imported Section ${index + 1}`;
-          const body = lines.slice(1).join('\n') || ''; // Content is rest
+          const body = lines.slice(1).join('\n') || '';
           const htmlContent = body.split('\n').map(l => `<p>${l}</p>`).join('');
+          const wordCount = body.split(/\s+/).filter(w => w.length > 0).length;
 
           const newId = generateId();
           items[newId] = {
@@ -274,12 +360,15 @@ export const useAppStore = create<AppState>((set, get) => ({
               type: ItemType.TEXT,
               content: htmlContent,
               status: 'To Do',
-              children: []
+              children: [],
+              wordCount: wordCount,
+              createdDate: new Date(),
+              modifiedDate: new Date(),
+              corkboard: { x: Math.random() * 400, y: Math.random() * 400 }
           };
           newIds.push(newId);
       });
 
-      // Update parent
       if (items[parentId]) {
           items[parentId] = {
               ...items[parentId],
@@ -297,5 +386,77 @@ export const useAppStore = create<AppState>((set, get) => ({
           items[id] = { ...items[id], externalSync: settings };
       }
       return { items };
+  }),
+
+  updateCorkboardSettings: (settings) => set(state => ({
+      corkboardSettings: { ...state.corkboardSettings, ...settings }
+  })),
+
+  setCorkboardPosition: (id, x, y) => set(state => {
+      const items = { ...state.items };
+      if (items[id]) {
+          items[id] = {
+              ...items[id],
+              corkboard: { x, y }
+          };
+      }
+      return { items };
+  }),
+
+  commitFreeformOrder: (parentId) => set(state => {
+      // Reorder children based on X, Y visual position
+      const items = { ...state.items };
+      const parent = items[parentId];
+      if (!parent || !parent.children) return state;
+
+      const sortedChildren = [...parent.children].sort((aId, bId) => {
+          const a = items[aId].corkboard || { x: 0, y: 0 };
+          const b = items[bId].corkboard || { x: 0, y: 0 };
+          if (Math.abs(a.y - b.y) > 50) return a.y - b.y;
+          return a.x - b.x;
+      });
+
+      items[parentId] = { ...parent, children: sortedChildren };
+      return { items };
+  }),
+
+  updateOutlinerSettings: (settings) => set(state => ({
+      outlinerSettings: { ...state.outlinerSettings, ...settings }
+  })),
+
+  toggleOutlinerColumn: (columnId) => set(state => {
+      const columns = state.outlinerSettings.columns.map(col => {
+          if (col.id === columnId) return { ...col, visible: !col.visible };
+          return col;
+      });
+      return { outlinerSettings: { ...state.outlinerSettings, columns } };
+  }),
+
+  setOutlinerSort: (columnId) => set(state => {
+      const currentSort = state.outlinerSettings.sortBy;
+      const currentDir = state.outlinerSettings.sortDirection;
+      
+      let newDir: 'asc' | 'desc' = 'asc';
+      if (currentSort === columnId) {
+          if (currentDir === 'asc') newDir = 'desc';
+          else {
+              return { outlinerSettings: { ...state.outlinerSettings, sortBy: null } }; // Toggle off
+          }
+      }
+
+      return { outlinerSettings: { ...state.outlinerSettings, sortBy: columnId, sortDirection: newDir } };
+  }),
+
+  addCustomMetadataField: (field) => set(state => {
+      const fields = [...state.customMetadataFields, field];
+      const newCol = { 
+          id: field.id, 
+          label: field.name, 
+          visible: true, 
+          width: '100px', 
+          isCustom: true 
+      };
+      const columns = [...state.outlinerSettings.columns, newCol];
+      return { customMetadataFields: fields, outlinerSettings: { ...state.outlinerSettings, columns } };
   })
 }));

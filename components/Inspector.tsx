@@ -1,16 +1,32 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
-import { Tag, Calendar, AlertCircle, BookOpen, Layers, Bookmark, FileText } from 'lucide-react';
+import { Tag, Calendar, AlertCircle, BookOpen, Layers, Bookmark, FileText, Tags, Image as ImageIcon } from 'lucide-react';
 
 export const Inspector = () => {
   const { selectedItemIds, items, inspectorOpen, toggleInspector, updateItem, projectBookmarks, selectItem } = useAppStore();
   const [activeTab, setActiveTab] = useState<'info' | 'bookmarks'>('info');
+  const [keywordInput, setKeywordInput] = useState('');
   
   if (!inspectorOpen) return null;
   
   // If multiple items, showing summary or disabled
   const isMulti = selectedItemIds.length > 1;
   const item = selectedItemIds.length === 1 ? items[selectedItemIds[0]] : null;
+
+  const handleAddKeyword = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && keywordInput.trim() && item) {
+          const newKeywords = [...(item.keywords || []), keywordInput.trim()];
+          updateItem(item.id, { keywords: newKeywords });
+          setKeywordInput('');
+      }
+  };
+
+  const removeKeyword = (idx: number) => {
+      if (item) {
+          const newKeywords = item.keywords?.filter((_, i) => i !== idx);
+          updateItem(item.id, { keywords: newKeywords });
+      }
+  };
 
   return (
     <div className="w-80 border-l border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#202020] flex flex-col h-full shadow-xl z-10 transition-all">
@@ -52,7 +68,6 @@ export const Inspector = () => {
                              <span className="font-semibold text-sm text-gray-700 dark:text-gray-200">{bItem.title}</span>
                           </div>
                           <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-3 bg-gray-50 dark:bg-[#222] p-2 rounded">
-                               {/* Simple preview of content text (stripping html roughly) */}
                                {bItem.content ? bItem.content.replace(/<[^>]*>?/gm, '') : 'No content...'}
                           </div>
                       </div>
@@ -81,8 +96,8 @@ export const Inspector = () => {
                     <textarea 
                         className="w-full text-sm bg-transparent outline-none text-gray-600 dark:text-gray-300 resize-none h-24"
                         placeholder="Write a brief summary..."
-                        value={item!.synopsis || ''}
-                        onChange={(e) => updateItem(item!.id, { synopsis: e.target.value })}
+                        value={item.synopsis || ''}
+                        onChange={(e) => updateItem(item.id, { synopsis: e.target.value })}
                     />
                 </div>
 
@@ -96,8 +111,8 @@ export const Inspector = () => {
                         <label className="text-xs text-gray-400 uppercase font-bold">Label</label>
                         <select 
                             className="w-full text-sm bg-gray-50 dark:bg-[#333] border border-gray-200 dark:border-gray-600 rounded p-1.5 text-gray-700 dark:text-gray-300 outline-none focus:border-blue-500"
-                            value={item!.label || ''}
-                            onChange={(e) => updateItem(item!.id, { label: e.target.value as any })}
+                            value={item.label || ''}
+                            onChange={(e) => updateItem(item.id, { label: e.target.value as any })}
                         >
                             <option value="">None</option>
                             <option value="Chapter">Chapter</option>
@@ -112,14 +127,55 @@ export const Inspector = () => {
                         <label className="text-xs text-gray-400 uppercase font-bold">Status</label>
                         <select 
                             className="w-full text-sm bg-gray-50 dark:bg-[#333] border border-gray-200 dark:border-gray-600 rounded p-1.5 text-gray-700 dark:text-gray-300 outline-none focus:border-blue-500"
-                            value={item!.status || 'To Do'}
-                            onChange={(e) => updateItem(item!.id, { status: e.target.value as any })}
+                            value={item.status || 'To Do'}
+                            onChange={(e) => updateItem(item.id, { status: e.target.value as any })}
                         >
                             <option value="To Do">To Do</option>
                             <option value="In Progress">In Progress</option>
                             <option value="Done">Done</option>
                         </select>
                     </div>
+                </div>
+
+                {/* Corkboard Options */}
+                <div className="bg-white dark:bg-[#2a2a2a] p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 mb-2 text-gray-700 dark:text-gray-200 font-medium text-sm border-b border-gray-100 dark:border-gray-600 pb-2">
+                         <ImageIcon size={14} /> Card Appearance
+                    </div>
+                    
+                    <div className="space-y-1">
+                        <label className="text-xs text-gray-400 uppercase font-bold">Card Image URL</label>
+                        <input 
+                            className="w-full text-sm bg-gray-50 dark:bg-[#333] border border-gray-200 dark:border-gray-600 rounded p-1.5 text-gray-700 dark:text-gray-300 outline-none focus:border-blue-500"
+                            placeholder="https://example.com/image.jpg"
+                            value={item.cardImage || ''}
+                            onChange={(e) => updateItem(item.id, { cardImage: e.target.value })}
+                        />
+                    </div>
+                </div>
+
+                {/* Keywords Section */}
+                <div className="bg-white dark:bg-[#2a2a2a] p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2 text-gray-700 dark:text-gray-200 font-medium text-sm border-b border-gray-100 dark:border-gray-600 pb-2">
+                        <Tags size={14} /> Keywords
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 mb-2">
+                        {item.keywords?.map((k, i) => (
+                            <span key={i} className="text-xs bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-1 rounded flex items-center gap-1">
+                                {k}
+                                <button onClick={() => removeKeyword(i)} className="hover:text-blue-800 dark:hover:text-blue-100">×</button>
+                            </span>
+                        ))}
+                    </div>
+
+                    <input 
+                        className="w-full text-sm bg-gray-50 dark:bg-[#333] border border-gray-200 dark:border-gray-600 rounded p-1.5 text-gray-700 dark:text-gray-300 outline-none focus:border-blue-500"
+                        placeholder="Add keyword (Enter)..."
+                        value={keywordInput}
+                        onChange={(e) => setKeywordInput(e.target.value)}
+                        onKeyDown={handleAddKeyword}
+                    />
                 </div>
 
                 {/* Notes Section */}

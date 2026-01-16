@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { BinderItem, ItemType } from '../types';
@@ -294,7 +295,7 @@ interface BinderItemRowProps {
 }
 
 const BinderItemRow: React.FC<BinderItemRowProps> = ({ item, level, onContextMenu }) => {
-  const { selectedItemIds, selectItem, setBinderItemExpanded, items, moveItem, binderSearchTerm, binderSettings } = useAppStore();
+  const { selectedItemIds, selectItem, setBinderItemExpanded, items, moveItem, binderSearchTerm, binderSettings, setViewRoot } = useAppStore();
   const isSelected = selectedItemIds.includes(item.id);
   const hasChildren = item.children && item.children.length > 0;
   
@@ -311,7 +312,9 @@ const BinderItemRow: React.FC<BinderItemRowProps> = ({ item, level, onContextMen
       } else if (e.shiftKey) {
           selectItem(item.id, true, true);
       } else {
-          selectItem(item.id, false, false);
+          selectItem(item.id, false, false, true); // Auto switch view
+          // Also set as the View Root for navigation
+          setViewRoot(item.id);
       }
   };
 

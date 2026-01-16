@@ -1,3 +1,4 @@
+
 export type ViewMode = 'editor' | 'corkboard' | 'outliner' | 'mindmap' | 'timeline';
 
 export enum ItemType {
@@ -9,6 +10,14 @@ export enum ItemType {
 }
 
 export type LabelTint = 'none' | 'icon' | 'dot' | 'row';
+export type CorkboardMode = 'grid' | 'freeform' | 'label';
+
+export interface CustomMetadataField {
+    id: string;
+    name: string;
+    type: 'text' | 'date' | 'checkbox' | 'list';
+    options?: string[]; // For list type
+}
 
 export interface BinderItem {
   id: string;
@@ -19,9 +28,24 @@ export interface BinderItem {
   synopsis?: string;
   status?: 'To Do' | 'In Progress' | 'Done';
   label?: 'Chapter' | 'Scene' | 'Character' | 'Location' | 'Idea';
+  wordCount?: number; // Actual count
   wordCountTarget?: number;
+  createdDate?: Date;
+  modifiedDate?: Date;
+  
   icon?: string; // Custom icon name
   
+  // Corkboard Metadata
+  keywords?: string[];
+  cardImage?: string; // URL for the card face
+  corkboard?: {
+    x: number;
+    y: number;
+  };
+
+  // Custom Metadata Values (Key = Field ID)
+  customMetadata?: Record<string, string | boolean>;
+
   // Indicators
   hasSnapshots?: boolean;
   hasComments?: boolean;
@@ -54,6 +78,14 @@ export interface Project {
   lastModified: Date;
 }
 
+export interface OutlinerColumn {
+    id: string;
+    label: string;
+    visible: boolean;
+    width: string; // CSS Grid value
+    isCustom?: boolean;
+}
+
 export interface AppState {
   currentView: 'dashboard' | 'workspace';
   activeProjectId: string | null;
@@ -62,9 +94,10 @@ export interface AppState {
   items: Record<string, BinderItem>;
   rootItems: string[]; // Top level IDs
 
-  // Selection
-  selectedItemId: string | null; // The "active" or "focused" item
-  selectedItemIds: string[]; // All selected items (for Group/Scrivenings mode)
+  // Selection & Navigation
+  selectedItemId: string | null; // The "active" or "focused" item (Inspector target)
+  selectedItemIds: string[]; // All selected items
+  viewRootId: string | null; // The container currently being viewed in Corkboard/Outliner
   
   // Binder View State
   binderTab: 'binder' | 'collections';
@@ -76,6 +109,24 @@ export interface AppState {
       showStatus: boolean;
   };
   
+  // Corkboard Settings
+  corkboardSettings: {
+      mode: CorkboardMode;
+      cardSize: number; // 1 to 4
+      ratio: '3:5' | '4:6' | '1:1';
+      showStatus: boolean;
+      showKeywords: boolean;
+      showLabel: boolean;
+  };
+
+  // Outliner Settings
+  outlinerSettings: {
+      columns: OutlinerColumn[];
+      sortBy: string | null;
+      sortDirection: 'asc' | 'desc';
+  };
+  customMetadataFields: CustomMetadataField[];
+
   // Project Bookmarks (Pinned items)
   projectBookmarks: string[];
 
@@ -87,7 +138,9 @@ export interface AppState {
   // Actions
   createProject: (name: string) => void;
   openProject: (id: string) => void;
-  selectItem: (id: string, multi?: boolean, range?: boolean) => void;
+  selectItem: (id: string, multi?: boolean, range?: boolean, autoSwitchView?: boolean) => void;
+  setViewRoot: (id: string | null) => void;
+  
   toggleInspector: () => void;
   toggleTopDrawer: () => void;
   setBinderItemExpanded: (id: string, expanded: boolean) => void;
@@ -102,6 +155,17 @@ export interface AppState {
   setHoistedItemId: (id: string | null) => void;
   setBinderTab: (tab: 'binder' | 'collections') => void;
   updateBinderSettings: (settings: Partial<AppState['binderSettings']>) => void;
+
+  // Corkboard Actions
+  updateCorkboardSettings: (settings: Partial<AppState['corkboardSettings']>) => void;
+  setCorkboardPosition: (id: string, x: number, y: number) => void;
+  commitFreeformOrder: (parentId: string) => void;
+
+  // Outliner Actions
+  updateOutlinerSettings: (settings: Partial<AppState['outlinerSettings']>) => void;
+  toggleOutlinerColumn: (columnId: string) => void;
+  setOutlinerSort: (columnId: string) => void;
+  addCustomMetadataField: (field: CustomMetadataField) => void;
 
   // Advanced Features
   splitItem: (id: string, contentBefore: string, contentAfter: string, splitTitle: string) => void;
